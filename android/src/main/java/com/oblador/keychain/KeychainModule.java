@@ -20,15 +20,16 @@ import java.nio.charset.Charset;
 
 public class KeychainModule extends ReactContextBaseJavaModule {
 
-    public static final String REACT_CLASS = "RNKeychainManager";
+    public static final String KEYCHAIN_MODULE = "RNKeychainManager";
     public static final String KEYCHAIN_DATA = "RN_KEYCHAIN";
+    public static final String EMPTY_STRING = "";
 
     private final Crypto crypto;
     private final SharedPreferences prefs;
 
     @Override
     public String getName() {
-        return REACT_CLASS;
+        return KEYCHAIN_MODULE;
     }
 
     public KeychainModule(ReactApplicationContext reactContext) {
@@ -36,40 +37,37 @@ public class KeychainModule extends ReactContextBaseJavaModule {
 
         KeyChain keyChain = new SharedPrefsBackedKeyChain(getReactApplicationContext(), CryptoConfig.KEY_256);
         crypto = AndroidConceal.get().createDefaultCrypto(keyChain);
-
         prefs = this.getReactApplicationContext().getSharedPreferences(KEYCHAIN_DATA, Context.MODE_PRIVATE);
     }
 
     @ReactMethod
     public void setGenericPasswordForService(String service, String username, String password, Callback callback) {
         if (!crypto.isAvailable()) {
-            Log.e("KeychainModule", "Crypto is missing");
+            Log.e(KEYCHAIN_MODULE, "Crypto is missing");
+            callback.invoke("KeychainModule: crypto is missing");
+            return;
         }
         if (username == null || username.isEmpty() || password == null || password.isEmpty()) {
-            Log.e("KeychainModule", "you passed empty or null username/password");
+            Log.e(KEYCHAIN_MODULE, "you passed empty or null username/password");
             callback.invoke("KeychainModule: you passed empty or null username/password");
             return;
         }
-        service = service == null ? "" : service;
+        service = service == null ? EMPTY_STRING : service;
         //Log.d("Crypto", service + username + password);
 
         Entity userentity = Entity.create(KEYCHAIN_DATA + ":" + service + "user");
         Entity pwentity = Entity.create(KEYCHAIN_DATA + ":" + service + "pass");
 
-        try {
-            String encryptedUsername = encryptWithEntity(username, userentity, callback);
-            String encryptedPassword = encryptWithEntity(password, pwentity, callback);
 
-            SharedPreferences.Editor prefsEditor = prefs.edit();
-            prefsEditor.putString(service + ":u", encryptedUsername);
-            prefsEditor.putString(service + ":p", encryptedPassword);
-            prefsEditor.apply();
-            Log.d("KeychainModule", "saved the data");
-            callback.invoke("", "KeychainModule saved the data");
-        } catch (Exception e) {
-            Log.e("KeychainModule ", e.getLocalizedMessage());
-            callback.invoke(e.getLocalizedMessage());
-        }
+        String encryptedUsername = encryptWithEntity(username, userentity, callback);
+        String encryptedPassword = encryptWithEntity(password, pwentity, callback);
+
+        SharedPreferences.Editor prefsEditor = prefs.edit();
+        prefsEditor.putString(service + ":u", encryptedUsername);
+        prefsEditor.putString(service + ":p", encryptedPassword);
+        prefsEditor.apply();
+        Log.d(KEYCHAIN_MODULE, "saved the data");
+        callback.invoke(EMPTY_STRING, "KeychainModule saved the data");
     }
 
     private String encryptWithEntity(String toEncypt, Entity entity, Callback callback) {
@@ -77,7 +75,7 @@ public class KeychainModule extends ReactContextBaseJavaModule {
             byte[] encryptedBytes = crypto.encrypt(toEncypt.getBytes(Charset.forName("UTF-8")), entity);
             return Base64.encodeToString(encryptedBytes, Base64.DEFAULT);
         } catch (Exception e) {
-            Log.e("KeychainModule ", e.getLocalizedMessage());
+            Log.e(KEYCHAIN_MODULE, e.getLocalizedMessage());
             callback.invoke(e.getLocalizedMessage());
             return null;
         }
@@ -85,21 +83,18 @@ public class KeychainModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void getGenericPasswordForService(String service, Callback callback) {
-        service = service == null ? "" : service;
+        service = service == null ? EMPTY_STRING : service;
 
         String username = prefs.getString(service + ":u", "user_not_found");
         String password = prefs.getString(service + ":p", "pass_not_found");
         if (username.equals("user_not_found") || password.equals("pass_not_found")) {
-            Log.e("KeychainModule ", "no keychain entry found for service: " + service);
+            Log.e(KEYCHAIN_MODULE, "no keychain entry found for service: " + service);
             callback.invoke("no keychain entry found for service: " + service);
             return;
         }
 
-        Log.d("KeychainModule ", "will attempt to decrypt for " + service + username + ":" + password);
-
         byte[] recuser = Base64.decode(username, Base64.DEFAULT);
         byte[] recpass = Base64.decode(password, Base64.DEFAULT);
-
 
         Entity userentity = Entity.create(KEYCHAIN_DATA + ":" + service + "user");
         Entity pwentity = Entity.create(KEYCHAIN_DATA + ":" + service + "pass");
@@ -108,26 +103,25 @@ public class KeychainModule extends ReactContextBaseJavaModule {
             byte[] decryptedUsername = crypto.decrypt(recuser, userentity);
             byte[] decryptedPass = crypto.decrypt(recpass, pwentity);
 
-            callback.invoke("", new String(decryptedUsername, Charset.forName("UTF-8")), new String(decryptedPass, Charset.forName("UTF-8")));
+            callback.invoke(EMPTY_STRING, new String(decryptedUsername, Charset.forName("UTF-8")), new String(decryptedPass, Charset.forName("UTF-8")));
         } catch (Exception e) {
-            Log.e("KeychainModule ", e.getLocalizedMessage());
+            Log.e(KEYCHAIN_MODULE, e.getLocalizedMessage());
             callback.invoke(e.getLocalizedMessage());
         }
     }
 
     @ReactMethod
     public void resetGenericPasswordForService(String service, Callback callback) {
-        service = service == null ? "" : service;
+        service = service == null ? EMPTY_STRING : service;
+        SharedPreferences.Editor prefsEditor = prefs.edit();
 
-        try {
-            SharedPreferences.Editor prefsEditor = prefs.edit();
+        if (prefs.contains(service + ":u")) {
             prefsEditor.remove(service + ":u");
             prefsEditor.remove(service + ":p");
             prefsEditor.apply();
-            callback.invoke("", "KeychainModule password was reset");
-        } catch (Exception e) {
-            //this probably never happens but it is here so that the android api is the same as on iOS
-            callback.invoke(e.getLocalizedMessage());
+            callback.invoke(EMPTY_STRING, "KeychainModule password was reset");
+        } else {
+            callback.invoke("Error when resetting password: entry not found for service: " + service);
         }
     }
 
